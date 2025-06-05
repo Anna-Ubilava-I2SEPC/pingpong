@@ -54,7 +54,7 @@ setInterval(() => {
     ball.vy *= -1;
   }
 
-  // Simple paddle collision (left & right sides)
+  // paddle collision (left & right sides)
   Object.entries(gameState.paddles).forEach(([id, paddleY], index) => {
     const isLeft = index === 0;
     const paddleX = isLeft ? 30 : WIDTH - 40;
@@ -66,7 +66,25 @@ setInterval(() => {
     }
   });
 
-  // Emit game state
+  // Scoring
+  // Check if the ball went past left or right edge (score)
+  if (ball.x < 0 || ball.x > WIDTH) {
+    // Identify which player scored (opposite of the side the ball exited)
+    const playerIds = Object.keys(gameState.paddles);
+    const scorer = ball.x < 0 ? playerIds[1] : playerIds[0];
+
+    if (scorer) {
+      gameState.score[scorer] = (gameState.score[scorer] || 0) + 1;
+    }
+
+    // Reset ball and reverse direction
+    ball.x = WIDTH / 2;
+    ball.y = HEIGHT / 2;
+    ball.vx = ball.vx > 0 ? -5 : 5; // Flip direction to serve to the other player
+    ball.vy = (Math.random() - 0.5) * 10; // Add some vertical randomness
+  }
+
+  // Emit game state; Send game state to clients
   io.emit("gameState", gameState);
 }, 1000 / 60);
 
