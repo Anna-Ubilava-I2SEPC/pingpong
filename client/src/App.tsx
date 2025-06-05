@@ -10,7 +10,7 @@ function App() {
     });
   }, []);
 
-  return <div>Pong Game Here</div>;
+  return <div>Pong Game</div>;
 }
 
 export default App;
