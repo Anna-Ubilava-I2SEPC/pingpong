@@ -269,7 +269,4 @@ setInterval(() => {
   io.emit("gameState", gameState);
 }, 1000 / 30); // 30 FPS for non-game updates
 
-const PORT = process.env.PORT || 3001;
-server.listen(3001, "0.0.0.0", () =>
-  console.log("Server running on port ${PORT}")
-);
+server.listen(3001, () => console.log("Server running on port 3001"));
