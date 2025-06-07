@@ -12,6 +12,13 @@ interface GameState {
   gameStarted: boolean;
   playersReady: { [id: string]: boolean };
   playerCount: number;
+  gameEnded?: boolean;
+  winner?: string;
+}
+
+interface GameWonData {
+  winner: string;
+  finalScore: { [id: string]: number };
 }
 
 function App() {
@@ -20,6 +27,7 @@ function App() {
   const [playerCount, setPlayerCount] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [playerId, setPlayerId] = useState<string>("");
+  const [gameWinner, setGameWinner] = useState<GameWonData | null>(null);
   const keysPressed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -41,10 +49,18 @@ function App() {
       }
     );
 
+    // Add game won event handler
+    socket.on("gameWon", (data: GameWonData) => {
+      console.log("Game won!", data);
+      setGameWinner(data);
+      setIsReady(false); // Reset ready state for potential replay
+    });
+
     return () => {
       socket.off("gameState");
       socket.off("playerCount");
       socket.off("playerReady");
+      socket.off("gameWon");
     };
   }, []);
 
@@ -150,7 +166,18 @@ function App() {
     ctx.font = "20px Arial";
     ctx.textAlign = "center";
 
-    if (!gameState.gameStarted) {
+    // Show winner message if game ended
+    if (gameWinner) {
+      ctx.fillStyle = "#FFD700"; // Gold color for winner
+      ctx.font = "32px Arial";
+      const isWinner = gameWinner.winner === socket.id;
+      const winnerText = isWinner ? "🎉 YOU WON! 🎉" : "💔 YOU LOST 💔";
+      ctx.fillText(winnerText, WIDTH / 2, HEIGHT / 2 - 50);
+      
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "16px Arial";
+      ctx.fillText("Click 'Play Again' to start a new game", WIDTH / 2, HEIGHT / 2 + 20);
+    } else if (!gameState.gameStarted) {
       if (playerCount < 2) {
         ctx.fillText("Waiting for players...", WIDTH / 2, HEIGHT / 2 - 30);
         ctx.fillText(
@@ -165,11 +192,17 @@ function App() {
         ctx.fillText(`${readyCount}/2 players ready`, WIDTH / 2, HEIGHT / 2);
       }
     }
-  }, [gameState, playerCount]);
+  }, [gameState, playerCount, gameWinner]);
 
   const handleStartGame = () => {
     socket.emit("startGame");
     setIsReady(true);
+  };
+
+  const handlePlayAgain = () => {
+    socket.emit("playAgain");
+    setIsReady(true);
+    setGameWinner(null); // Clear the winner state
   };
 
   const getScoreArray = () => {
@@ -182,6 +215,11 @@ function App() {
     }));
   };
 
+  const getWinnerName = () => {
+    if (!gameWinner) return "";
+    return gameWinner.winner === socket.id ? "You" : "Your Opponent";
+  };
+
   return (
     <div className="App">
       <div className="game-container">
@@ -189,12 +227,17 @@ function App() {
 
         <div className="game-info">
           <p>Players Connected: {playerCount}/2</p>
-          {gameState && gameState.gameStarted && (
+          {gameWinner && (
+            <p>
+              Game Status: <span className="status-ended">Game Ended - {getWinnerName()} Won!</span>
+            </p>
+          )}
+          {gameState && gameState.gameStarted && !gameWinner && (
             <p>
               Game Status: <span className="status-playing">Playing</span>
             </p>
           )}
-          {gameState && !gameState.gameStarted && playerCount >= 2 && (
+          {gameState && !gameState.gameStarted && playerCount >= 2 && !gameWinner && (
             <p>
               Game Status:{" "}
               <span className="status-waiting">
@@ -202,7 +245,7 @@ function App() {
               </span>
             </p>
           )}
-          {playerCount < 2 && (
+          {playerCount < 2 && !gameWinner && (
             <p>
               Game Status:{" "}
               <span className="status-waiting">Waiting for players</span>
@@ -236,13 +279,21 @@ function App() {
             </p>
           </div>
 
-          {playerCount >= 2 && !gameState?.gameStarted && !isReady && (
+          {/* Show Play Again button if game ended */}
+          {gameWinner && (
+            <button onClick={handlePlayAgain} className="play-again-button">
+              Play Again
+            </button>
+          )}
+
+          {/* Show Start button if no game ended and conditions are met */}
+          {!gameWinner && playerCount >= 2 && !gameState?.gameStarted && !isReady && (
             <button onClick={handleStartGame} className="start-button">
               Start Playing
             </button>
           )}
 
-          {isReady && !gameState?.gameStarted && (
+          {!gameWinner && isReady && !gameState?.gameStarted && (
             <p className="waiting-message">
               Waiting for other player to start...
             </p>
@@ -258,17 +309,25 @@ function App() {
                   key={player.id}
                   className={`player-score ${
                     player.isCurrentPlayer ? "current-player" : ""
+                  } ${
+                    gameWinner && gameWinner.winner === player.id ? "winner" : ""
                   }`}
                 >
                   <span className="player-name">
                     {player.isCurrentPlayer
                       ? "You"
                       : `Player ${player.playerNumber}`}
+                    {gameWinner && gameWinner.winner === player.id && " 👑"}
                   </span>
                   <span className="score">{player.score}</span>
                 </div>
               ))}
             </div>
+            {gameWinner && (
+              <div className="final-score-message">
+                <p>Final Score: {Object.values(gameWinner.finalScore).join(" - ")}</p>
+              </div>
+            )}
           </div>
         )}
       </div>

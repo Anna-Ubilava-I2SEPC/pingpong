@@ -177,3 +177,36 @@ h1 {
     font-size: 2rem;
   }
 }
+
+.status-ended {
+  color: #ffd700;
+  font-weight: bold;
+}
+
+.play-again-button {
+  background-color: #4caf50;
+  color: white;
+  padding: 12px 24px;
+  font-size: 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 10px;
+}
+
+.play-again-button:hover {
+  background-color: #45a049;
+}
+
+.winner {
+  background-color: #ffd700;
+  color: #000;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.final-score-message {
+  margin-top: 10px;
+  font-weight: bold;
+  color: #ffd700;
+}
