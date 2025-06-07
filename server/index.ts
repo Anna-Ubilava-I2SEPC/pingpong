@@ -7,12 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:3000",
-      "http://YOUR_EC2_PUBLIC_IP:3000",
-      "http://YOUR_EC2_PUBLIC_IP",
-    ],
-    methods: ["GET", "POST"],
+    origin: "*",
   },
 });
 
