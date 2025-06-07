@@ -59,7 +59,7 @@ A real-time multiplayer ping-pong game built with React, Node.js, Socket.IO, and
    Client will start on `http://localhost:5173`
 
 6. **Play the game**
-   - Open `http://localhost:3000` in two different browser windows/tabs
+   - Open `http://localhost:5173` in two different browser windows/tabs
    - Both players click "Start Playing" when ready
    - Use Arrow Keys, WASD, or mouse to control your paddle
    - First to 11 points wins!
