@@ -15,77 +15,186 @@ interface GameState {
   ball: { x: number; y: number; vx: number; vy: number };
   paddles: { [id: string]: number };
   score: { [id: string]: number };
+  gameStarted: boolean;
+  playersReady: { [id: string]: boolean };
+  playerCount: number;
 }
 
 const WIDTH = 800;
 const HEIGHT = 600;
 const PADDLE_HEIGHT = 100;
+const PADDLE_SPEED = 8;
 
 let gameState: GameState = {
-  ball: { x: WIDTH / 2, y: HEIGHT / 2, vx: 5, vy: 5 },
+  ball: { x: WIDTH / 2, y: HEIGHT / 2, vx: 0, vy: 0 }, // Ball starts stationary
   paddles: {},
   score: {},
+  gameStarted: false,
+  playersReady: {},
+  playerCount: 0,
 };
+
+let gameInterval: NodeJS.Timeout | null = null;
+
+function startGame() {
+  if (gameInterval) clearInterval(gameInterval);
+  
+  // Reset ball with random direction
+  gameState.ball = {
+    x: WIDTH / 2,
+    y: HEIGHT / 2,
+    vx: Math.random() > 0.5 ? 5 : -5,
+    vy: (Math.random() - 0.5) * 6,
+  };
+  gameState.gameStarted = true;
+  
+  gameInterval = setInterval(() => {
+    if (!gameState.gameStarted) return;
+    
+    const ball = gameState.ball;
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    // Bounce off top/bottom walls
+    if (ball.y <= 10 || ball.y >= HEIGHT - 10) {
+      ball.vy *= -1;
+    }
+
+    // Paddle collision detection
+    const playerIds = Object.keys(gameState.paddles);
+    playerIds.forEach((id, index) => {
+      const paddleY = gameState.paddles[id];
+      const isLeft = index === 0;
+      const paddleX = isLeft ? 20 : WIDTH - 30;
+      
+      // Check collision
+      if (
+        ((isLeft && ball.x - 10 <= paddleX + 10 && ball.x > paddleX) ||
+         (!isLeft && ball.x + 10 >= paddleX && ball.x < paddleX + 10)) &&
+        ball.y >= paddleY - 10 &&
+        ball.y <= paddleY + PADDLE_HEIGHT + 10
+      ) {
+        ball.vx *= -1;
+        // Add some spin based on where the ball hits the paddle
+        const hitPos = (ball.y - paddleY) / PADDLE_HEIGHT;
+        ball.vy = (hitPos - 0.5) * 8;
+      }
+    });
+
+    // Scoring - ball goes off screen
+    if (ball.x < -10 || ball.x > WIDTH + 10) {
+      const playerIds = Object.keys(gameState.paddles);
+      const scorer = ball.x < -10 ? playerIds[1] : playerIds[0];
+
+      if (scorer && gameState.score[scorer] !== undefined) {
+        gameState.score[scorer]++;
+      }
+
+      // Reset ball position and add delay
+      setTimeout(() => {
+        ball.x = WIDTH / 2;
+        ball.y = HEIGHT / 2;
+        ball.vx = ball.x < 0 ? 5 : -5;
+        ball.vy = (Math.random() - 0.5) * 6;
+      }, 1000);
+    }
+
+    // Emit game state to all clients
+    io.emit("gameState", gameState);
+  }, 1000 / 60); // 60 FPS
+}
+
+function stopGame() {
+  gameState.gameStarted = false;
+  gameState.ball.vx = 0;
+  gameState.ball.vy = 0;
+  gameState.ball.x = WIDTH / 2;
+  gameState.ball.y = HEIGHT / 2;
+  
+  if (gameInterval) {
+    clearInterval(gameInterval);
+    gameInterval = null;
+  }
+}
+
+function checkGameStart() {
+  const playerIds = Object.keys(gameState.playersReady);
+  const readyCount = Object.values(gameState.playersReady).filter(ready => ready).length;
+  
+  if (playerIds.length >= 2 && readyCount >= 2 && !gameState.gameStarted) {
+    startGame();
+  }
+}
 
 io.on("connection", (socket) => {
   console.log(`User connected: ${socket.id}`);
-
-  gameState.paddles[socket.id] = HEIGHT / 2;
+  
+  // Initialize player
+  gameState.paddles[socket.id] = HEIGHT / 2 - PADDLE_HEIGHT / 2;
   gameState.score[socket.id] = 0;
+  gameState.playersReady[socket.id] = false;
+  gameState.playerCount++;
+  
+  // Send initial game state
+  socket.emit("gameState", gameState);
+  io.emit("playerCount", gameState.playerCount);
 
-  socket.on("paddleMove", (y: number) => {
-    gameState.paddles[socket.id] = y;
+  socket.on("paddleMove", (direction: 'up' | 'down') => {
+    if (!gameState.gameStarted) return;
+    
+    const currentY = gameState.paddles[socket.id];
+    let newY = currentY;
+    
+    if (direction === 'up') {
+      newY = Math.max(0, currentY - PADDLE_SPEED);
+    } else if (direction === 'down') {
+      newY = Math.min(HEIGHT - PADDLE_HEIGHT, currentY + PADDLE_SPEED);
+    }
+    
+    gameState.paddles[socket.id] = newY;
+  });
+
+  socket.on("paddlePosition", (y: number) => {
+    if (!gameState.gameStarted) return;
+    
+    // Ensure the position is within bounds
+    const boundedY = Math.max(0, Math.min(HEIGHT - PADDLE_HEIGHT, y));
+    gameState.paddles[socket.id] = boundedY;
+  });
+
+  socket.on("startGame", () => {
+    console.log(`Player ${socket.id} is ready to start`);
+    gameState.playersReady[socket.id] = true;
+    
+    io.emit("playerReady", { playerId: socket.id, ready: true });
+    checkGameStart();
   });
 
   socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+    
     delete gameState.paddles[socket.id];
     delete gameState.score[socket.id];
-    console.log(`User disconnected: ${socket.id}`);
+    delete gameState.playersReady[socket.id];
+    gameState.playerCount--;
+    
+    // Stop game if less than 2 players
+    if (gameState.playerCount < 2) {
+      stopGame();
+      // Reset ready states for remaining players
+      Object.keys(gameState.playersReady).forEach(id => {
+        gameState.playersReady[id] = false;
+      });
+    }
+    
+    io.emit("playerCount", gameState.playerCount);
+    io.emit("gameState", gameState);
   });
 });
 
+// Send game state regularly even when game is not started (for paddle positions)
 setInterval(() => {
-  const ball = gameState.ball;
-  ball.x += ball.vx;
-  ball.y += ball.vy;
-
-  // Bounce off top/bottom walls
-  if (ball.y <= 0 || ball.y >= HEIGHT) {
-    ball.vy *= -1;
-  }
-
-  // paddle collision (left & right sides)
-  Object.entries(gameState.paddles).forEach(([id, paddleY], index) => {
-    const isLeft = index === 0;
-    const paddleX = isLeft ? 30 : WIDTH - 40;
-    const withinX = isLeft ? ball.x <= paddleX + 10 : ball.x >= paddleX;
-    const withinY = ball.y >= paddleY && ball.y <= paddleY + PADDLE_HEIGHT;
-
-    if (withinX && withinY) {
-      ball.vx *= -1;
-    }
-  });
-
-  // Scoring
-  // Check if the ball went past left or right edge (score)
-  if (ball.x < 0 || ball.x > WIDTH) {
-    // Identify which player scored (opposite of the side the ball exited)
-    const playerIds = Object.keys(gameState.paddles);
-    const scorer = ball.x < 0 ? playerIds[1] : playerIds[0];
-
-    if (scorer) {
-      gameState.score[scorer] = (gameState.score[scorer] || 0) + 1;
-    }
-
-    // Reset ball and reverse direction
-    ball.x = WIDTH / 2;
-    ball.y = HEIGHT / 2;
-    ball.vx = ball.vx > 0 ? -5 : 5; // Flip direction to serve to the other player
-    ball.vy = (Math.random() - 0.5) * 10; // Add some vertical randomness
-  }
-
-  // Emit game state; Send game state to clients
   io.emit("gameState", gameState);
-}, 1000 / 60);
+}, 1000 / 30); // 30 FPS for non-game updates
 
 server.listen(3001, () => console.log("Server running on port 3001"));
